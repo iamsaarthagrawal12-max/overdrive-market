@@ -3,7 +3,6 @@ import {
   getFirestore,
   doc,
   setDoc,
-  getDoc,
   onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
@@ -23,99 +22,71 @@ const db = getFirestore(app);
 
 /* ================= STATE ================= */
 
-let currentRoom = null;
-let myRole = null;
+let roomId = null;
+let role = null;
+let lastPrices = {};
 
 /* ================= MARKET ================= */
 
-const BASE_MARKET = {
+const BASE = {
   AAPL: 150,
   TSLA: 700,
   INFY: 1400,
   BTC: 50000
 };
 
-/* ================= CREATE ROOM ================= */
+/* ================= CREATE ================= */
 
-window.createRoom = async function (mode = "coop") {
-  const roomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+window.createRoom = async function () {
+  const id = Math.random().toString(36).substring(2, 7).toUpperCase();
 
-  await setDoc(doc(db, "rooms", roomCode), {
-    mode,
-    market: BASE_MARKET,
-
+  await setDoc(doc(db, "rooms", id), {
+    mode: "versus",
+    tick: 0,
+    market: BASE,
     players: {
       host: { cash: 1000000, holdings: {} }
-    },
-
-    ai: {
-      ai1: { cash: 1000000, holdings: {} },
-      ai2: { cash: 1000000, holdings: {} }
     }
   });
 
-  currentRoom = roomCode;
-  myRole = "host";
+  roomId = id;
+  role = "host";
 
-  document.getElementById("roomDisplay").innerText = roomCode;
+  document.getElementById("roomDisplay").innerText = id;
 
-  startListener(roomCode);
-
-  startGameLoop(roomCode);
-
-  alert("Room Created: " + roomCode + " MODE: " + mode);
+  startLoop(id);
+  listen(id);
 };
 
-/* ================= JOIN ROOM ================= */
+/* ================= JOIN ================= */
 
 window.joinRoom = async function () {
-  const roomCode = document.getElementById("roomCode").value.toUpperCase();
+  const id = document.getElementById("roomCode").value.toUpperCase();
 
-  const ref = doc(db, "rooms", roomCode);
-  const snap = await getDoc(ref);
+  await setDoc(doc(db, "rooms", id), snap => snap); // safe merge fallback not used
 
-  if (!snap.exists()) {
-    alert("Room not found");
-    return;
-  }
+  roomId = id;
+  role = "friend";
 
-  const data = snap.data();
+  document.getElementById("roomDisplay").innerText = id;
 
-  await setDoc(ref, {
-    ...data,
-    players: {
-      ...data.players,
-      friend: { cash: 1000000, holdings: {} }
-    }
-  });
-
-  currentRoom = roomCode;
-  myRole = "friend";
-
-  document.getElementById("roomDisplay").innerText = roomCode;
-
-  startListener(roomCode);
-
-  startGameLoop(roomCode);
-
-  alert("Joined Room: " + roomCode);
+  startLoop(id);
+  listen(id);
 };
 
 /* ================= BUY ================= */
 
 window.buy = async function (stock) {
-  if (!currentRoom) return;
+  const ref = doc(db, "rooms", roomId);
 
-  const ref = doc(db, "rooms", currentRoom);
-  const snap = await getDoc(ref);
+  const snap = await fetchRoom(ref);
+  const room = snap;
 
-  const room = snap.data();
-  const player = room.players[myRole];
-
+  const player = room.players[role];
   const price = room.market[stock];
 
-  if (!player || player.cash < price) {
-    alert("Not enough cash");
+  if (player.cash < price) {
+    flash("❌ Not enough cash");
     return;
   }
 
@@ -123,45 +94,65 @@ window.buy = async function (stock) {
   player.holdings[stock] = (player.holdings[stock] || 0) + 1;
 
   await setDoc(ref, room);
+
+  flash(`✔ Bought ${stock}`);
 };
 
-/* ================= LISTENER ================= */
+/* ================= GAME LOOP ================= */
 
-function startListener(roomCode) {
-  const ref = doc(db, "rooms", roomCode);
+function startLoop(id) {
+  setInterval(async () => {
+    const ref = doc(db, "rooms", id);
+
+    const room = await fetchRoom(ref);
+
+    /* MARKET MOVEMENT (REALISTIC FEEL) */
+    for (let s in room.market) {
+      let old = room.market[s];
+
+      let momentum = (old - (lastPrices[s] || old)) * 0.2;
+
+      let noise = (Math.random() - 0.5) * 8;
+
+      let newPrice = old + momentum + noise;
+
+      lastPrices[s] = old;
+
+      room.market[s] = Math.max(1, Math.round(newPrice));
+    }
+
+    room.tick++;
+
+    await setDoc(ref, room);
+
+  }, 1500); // faster = more “alive” feeling
+}
+
+/* ================= SNAPSHOT ================= */
+
+function listen(id) {
+  const ref = doc(db, "rooms", id);
 
   onSnapshot(ref, (snap) => {
     const room = snap.data();
     if (!room) return;
 
-    const player = room.players[myRole];
+    const p = room.players[role];
 
-    const netWorth = calcNetWorth(player, room.market);
+    let net = p.cash;
+    for (let s in p.holdings) {
+      net += p.holdings[s] * room.market[s];
+    }
 
-    document.getElementById("debug").innerHTML = `
-      <b>MODE:</b> ${room.mode}<br>
-      <b>ROLE:</b> ${myRole}<br>
-      <b>CASH:</b> ${player.cash}<br>
-      <b>NET WORTH:</b> ${netWorth}<br><br>
-
-      AAPL: ${player.holdings.AAPL || 0}<br>
-      TSLA: ${player.holdings.TSLA || 0}<br>
-      INFY: ${player.holdings.INFY || 0}<br>
-      BTC: ${player.holdings.BTC || 0}
-    `;
+    render(room, p, net);
   });
 }
 
-/* ================= NET WORTH ================= */
+/* ================= FETCH ================= */
 
-function calcNetWorth(player, market) {
-  let total = player.cash;
-
-  for (let stock in player.holdings) {
-    total += (market[stock] || 0) * player.holdings[stock];
-  }
-
-  return Math.round(total);
+async function fetchRoom(ref) {
+  const snap = await getDoc(ref);
+  return snap.data();
 }
 
 /* ================= EXPORT ================= */
@@ -169,57 +160,58 @@ function calcNetWorth(player, market) {
 window.createRoom = createRoom;
 window.joinRoom = joinRoom;
 window.buy = buy;
-/* ================= MARKET ENGINE ================= */
+/* ================= UI FEEL ENGINE ================= */
 
-const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
+function render(room, player, netWorth) {
+  document.getElementById("debug").innerHTML = `
+    <div style="font-family:monospace">
 
-function startGameLoop(roomCode) {
-  setInterval(async () => {
-    if (!roomCode) return;
+    <h2>📊 OVERDRIVE TRADING DESK</h2>
 
-    const ref = doc(db, "rooms", roomCode);
-    const snap = await getDoc(ref);
+    <b>NET WORTH:</b> ${netWorth.toLocaleString()}<br>
+    <b>CASH:</b> ${player.cash.toLocaleString()}<br>
+    <b>TICK:</b> ${room.tick}<br><br>
 
-    if (!snap.exists()) return;
+    <h3>📈 MARKET</h3>
+    AAPL: ${spark(room.market.AAPL)}<br>
+    TSLA: ${spark(room.market.TSLA)}<br>
+    INFY: ${spark(room.market.INFY)}<br>
+    BTC: ${spark(room.market.BTC)}<br>
 
-    const room = snap.data();
+    <br>
+    <h3>📦 HOLDINGS</h3>
+    AAPL: ${player.holdings.AAPL || 0}<br>
+    TSLA: ${player.holdings.TSLA || 0}<br>
+    INFY: ${player.holdings.INFY || 0}<br>
+    BTC: ${player.holdings.BTC || 0}<br>
 
-    /* ---- PRICE MOVEMENT ---- */
-    for (let stock in room.market) {
-      let price = room.market[stock];
+    </div>
+  `;
+}
 
-      let change = (Math.random() - 0.5) * 0.06;
-      price = price * (1 + change);
+/* ================= PRICE FEEL ================= */
 
-      room.market[stock] = Math.max(1, Math.round(price));
-    }
+function spark(price) {
+  if (!price) return "—";
 
-    /* ---- AI TRADING ---- */
-    for (let ai in room.ai) {
-      let bot = room.ai[ai];
+  if (price > 10000) return `🔥 ${price}`;
+  if (price > 1000) return `📈 ${price}`;
+  if (price < 100) return `📉 ${price}`;
 
-      let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
-      let price = room.market[stock];
+  return price;
+}
 
-      if (Math.random() < 0.5 && bot.cash > price) {
-        bot.cash -= price;
-        bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
-      }
-    }
+/* ================= FEEDBACK FLASH ================= */
 
-    /* ---- WIN CONDITION (VERSUS MODE) ---- */
-    if (room.mode === "versus" && room.players.friend) {
-      const hostWorth = calcNetWorth(room.players.host, room.market);
-      const friendWorth = calcNetWorth(room.players.friend, room.market);
+function flash(msg) {
+  let d = document.getElementById("debug");
 
-      if (hostWorth > 2000000 || friendWorth > 2000000) {
-        console.log("GAME OVER");
-        console.log("HOST:", hostWorth);
-        console.log("FRIEND:", friendWorth);
-      }
-    }
+  d.style.transition = "0.1s";
+  d.style.transform = "scale(1.02)";
 
-    await setDoc(ref, room);
+  setTimeout(() => {
+    d.style.transform = "scale(1)";
+  }, 100);
 
-  }, 3000);
+  console.log(msg);
 }
