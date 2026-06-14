@@ -4,7 +4,10 @@ import {
   doc,
   setDoc,
   getDoc,
-  onSnapshot
+  onSnapshot,
+  updateDoc,
+  increment,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
 /* ================= FIREBASE ================= */
@@ -21,32 +24,34 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-/* ================= STATE ================= */
+/* ================= GLOBAL STATE ================= */
 
 let roomId = null;
-let role = "host";
+let role = null;
 let loopStarted = false;
 
-/* ================= MARKET ================= */
+/* ================= BASE STATE ================= */
 
-const BASE_MARKET = {
+const BASE = {
   AAPL: 150,
   TSLA: 700,
   INFY: 1400,
   BTC: 50000
 };
 
-/* ================= CREATE ROOM ================= */
+/* ================= ROOM CREATION ================= */
 
 window.createRoom = async function () {
   const id = Math.random().toString(36).substring(2, 7).toUpperCase();
 
   await setDoc(doc(db, "rooms", id), {
-    market: BASE_MARKET,
+    mode: "versus",
     tick: 0,
+    market: BASE,
     players: {
       host: { cash: 1000000, holdings: {} }
-    }
+    },
+    lock: false
   });
 
   roomId = id;
@@ -54,7 +59,7 @@ window.createRoom = async function () {
 
   document.getElementById("roomDisplay").innerText = id;
 
-  startLoop();
+  startEngine();
   listen();
 
   alert("Room Created: " + id);
@@ -73,14 +78,8 @@ window.joinRoom = async function () {
     return;
   }
 
-  const data = snap.data();
-
-  await setDoc(ref, {
-    ...data,
-    players: {
-      ...data.players,
-      friend: { cash: 1000000, holdings: {} }
-    }
+  await updateDoc(ref, {
+    [`players.friend`]: { cash: 1000000, holdings: {} }
   });
 
   roomId = id;
@@ -88,36 +87,41 @@ window.joinRoom = async function () {
 
   document.getElementById("roomDisplay").innerText = id;
 
-  startLoop();
+  startEngine();
   listen();
 
-  alert("Joined Room: " + id);
+  alert("Joined: " + id);
 };
-
-/* ================= BUY ================= */
-
 window.buy = async function (stock) {
   if (!roomId) return;
 
   const ref = doc(db, "rooms", roomId);
-  const snap = await getDoc(ref);
 
-  const room = snap.data();
-  const player = room.players[role];
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return;
 
-  const price = room.market[stock];
+    const room = snap.data();
+    const player = room.players?.[role];
 
-  if (!player || player.cash < price) return;
+    const price = room.market?.[stock];
+    if (!player || !price) return;
 
-  player.cash -= price;
-  player.holdings[stock] = (player.holdings[stock] || 0) + 1;
+    if (player.cash < price) return;
 
-  await setDoc(ref, room);
+    const newCash = player.cash - price;
+    const newHoldings = {
+      ...player.holdings,
+      [stock]: (player.holdings?.[stock] || 0) + 1
+    };
+
+    tx.update(ref, {
+      [`players.${role}.cash`]: newCash,
+      [`players.${role}.holdings`]: newHoldings
+    });
+  });
 };
-
-/* ================= GAME LOOP ================= */
-
-function startLoop() {
+function startEngine() {
   if (loopStarted) return;
   loopStarted = true;
 
@@ -127,29 +131,31 @@ function startLoop() {
     const ref = doc(db, "rooms", roomId);
     const snap = await getDoc(ref);
 
+    if (!snap.exists()) return;
+
     const room = snap.data();
 
-    if (!room) return;
+    const market = { ...room.market };
 
-    /* MARKET MOVEMENT */
-    for (let s in room.market) {
-      let p = room.market[s];
+    /* REALISTIC MARKET MOVEMENT */
+    for (let s in market) {
+      let p = market[s];
 
-      let change = (Math.random() - 0.5) * 0.04;
-      p = p * (1 + change);
+      let drift = (Math.random() - 0.5) * 0.04;
+      let shock = Math.random() < 0.015 ? (Math.random() - 0.5) * 0.25 : 0;
 
-      room.market[s] = Math.max(1, Math.round(p));
+      p = p * (1 + drift + shock);
+
+      market[s] = Math.max(1, Math.round(p));
     }
 
-    room.tick++;
-
-    await setDoc(ref, room);
+    await updateDoc(ref, {
+      market,
+      tick: increment(1)
+    });
 
   }, 2000);
 }
-
-/* ================= LIVE UI ================= */
-
 function listen() {
   const ref = doc(db, "rooms", roomId);
 
@@ -157,28 +163,38 @@ function listen() {
     const room = snap.data();
     if (!room) return;
 
-    const player = room.players[role];
+    const player = room.players?.[role];
+    if (!player) return;
 
     let net = player.cash;
+
     for (let s in player.holdings) {
       net += player.holdings[s] * room.market[s];
     }
 
     document.getElementById("debug").innerHTML = `
-      <b>ROLE:</b> ${role}<br>
-      <b>CASH:</b> ${player.cash}<br>
-      <b>NET:</b> ${net}<br>
-      <b>TICK:</b> ${room.tick}<br><br>
+      <h2>OVERDRIVE MARKET</h2>
+      MODE: ${room.mode} | TICK: ${room.tick}<br><br>
 
-      AAPL: ${room.market.AAPL}<br>
-      TSLA: ${room.market.TSLA}<br>
-      INFY: ${room.market.INFY}<br>
-      BTC: ${room.market.BTC}<br>
+      CASH: ${player.cash}<br>
+      NET WORTH: ${Math.round(net)}<br><br>
+
+      MARKET:<br>
+      AAPL ${room.market.AAPL}<br>
+      TSLA ${room.market.TSLA}<br>
+      INFY ${room.market.INFY}<br>
+      BTC ${room.market.BTC}<br><br>
+
+      HOLDINGS:<br>
+      AAPL ${player.holdings.AAPL || 0}<br>
+      TSLA ${player.holdings.TSLA || 0}<br>
+      INFY ${player.holdings.INFY || 0}<br>
+      BTC ${player.holdings.BTC || 0}
     `;
   });
 }
 
-/* expose */
+/* EXPORT */
 window.createRoom = createRoom;
 window.joinRoom = joinRoom;
 window.buy = buy;
