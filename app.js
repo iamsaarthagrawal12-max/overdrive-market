@@ -1,18 +1,17 @@
-let myRole = null;
-let currentRoomCode = null;
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import {
   getFirestore,
   doc,
   setDoc,
-  getDoc
+  getDoc,
+  onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAIyGEBhM4UWhyS4bm8yLoSFKdVVNzcPQY",
   authDomain: "overdrive-market.firebaseapp.com",
-  storageBucket: "overdrive-market.firebasestorage.app",
   projectId: "overdrive-market",
+  storageBucket: "overdrive-market.firebasestorage.app",
   messagingSenderId: "213364020052",
   appId: "1:213364020052:web:33d3e4fa353ed08112aec1"
 };
@@ -20,100 +19,81 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-window.createRoom = async function () {
+let currentRoom = null;
+let myRole = "host";
+
+const STOCKS = {
+  AAPL: 150,
+  TSLA: 700,
+  INFY: 1400,
+  BTC: 50000
+};
+
+export async function createRoom() {
   const roomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
 
   await setDoc(doc(db, "rooms", roomCode), {
-    createdAt: Date.now(),
-    mode: "coop",
-    started: false,
-
-    market: {
-      AAPL: { price: 150 },
-      TSLA: { price: 700 },
-      INFY: { price: 1400 },
-      BTC: { price: 50000 }
-    },
-
+    market: STOCKS,
     players: {
-      host: {
-        cash: 1000000,
-        holdings: {}
-      }
-    },
-
-    aiTeams: {
-      ai1: { cash: 1000000, holdings: {} },
-      ai2: { cash: 1000000, holdings: {} }
+      host: { cash: 1000000, holdings: {} }
     }
   });
 
-  document.getElementById("roomDisplay").textContent = roomCode;
-  currentRoomCode = roomCode;
+  currentRoom = roomCode;
   myRole = "host";
+
+  document.getElementById("roomDisplay").innerText = roomCode;
+
+  listenRoom(roomCode);
+
   alert("Room Created: " + roomCode);
-};
+}
 
-window.joinRoom = async function () {
+export async function joinRoom() {
   const roomCode = document.getElementById("roomCode").value.toUpperCase();
-  const roomRef = doc(db, "rooms", roomCode);
-  const roomSnap = await getDoc(roomRef);
 
-  if (!roomSnap.exists()) {
+  const roomRef = doc(db, "rooms", roomCode);
+  const snap = await getDoc(roomRef);
+
+  if (!snap.exists()) {
     alert("Room not found");
     return;
   }
 
-  const roomData = roomSnap.data();
-
-  // 👉 assign role properly
-  myRole = roomData.players.friend ? "friend" : "host";
+  const data = snap.data();
 
   await setDoc(roomRef, {
-    ...roomData,
+    ...data,
     players: {
-      ...roomData.players,
-      friend: roomData.players.friend || {
-        cash: 1000000,
-        holdings: {}
-      }
+      ...data.players,
+      friend: { cash: 1000000, holdings: {} }
     }
   });
 
-  document.getElementById("roomDisplay").textContent = roomCode;
-  currentRoomCode = roomCode;
-  myRole = roomData.players.friend ? "friend" : "friend";
-  alert("Joined room " + roomCode + " as " + myRole);
+  currentRoom = roomCode;
+  myRole = "friend";
 
-  startGameLoop(roomCode);
-};
+  document.getElementById("roomDisplay").innerText = roomCode;
 
-window.buy = async function(stock) {
-  if (!currentRoomCode) {
-    alert("No room selected");
-    return;
-  }
+  listenRoom(roomCode);
 
-  const roomRef = doc(db, "rooms", currentRoomCode);
-  const roomSnap = await getDoc(roomRef);
+  alert("Joined room " + roomCode);
+}
 
-  if (!roomSnap.exists()) {
-    alert("Room missing");
-    return;
-  }
+export async function buy(stock) {
+  if (!currentRoom) return;
 
-  let room = roomSnap.data();
+  const roomRef = doc(db, "rooms", currentRoom);
+  const snap = await getDoc(roomRef);
 
-  // FIX: correct player selection
-  let playerKey = myRole === "host" ? "host" : "friend";
+  if (!snap.exists()) return;
 
-  if (!room.players[playerKey]) {
-    alert("Player not found in room");
-    return;
-  }
+  const room = snap.data();
 
-  let player = room.players[playerKey];
-  let price = room.market[stock].price;
+  const playerKey = myRole;
+  const player = room.players[playerKey];
+
+  const price = room.market[stock];
 
   if (player.cash < price) {
     alert("Not enough cash");
@@ -124,63 +104,29 @@ window.buy = async function(stock) {
   player.holdings[stock] = (player.holdings[stock] || 0) + 1;
 
   await setDoc(roomRef, room);
-
-  console.log("BUY SUCCESS:", stock, playerKey, player.cash);
-};
-const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
-
-async function startGameLoop(roomCode) {
-  setInterval(async () => {
-    const roomRef = doc(db, "rooms", roomCode);
-    const roomSnap = await getDoc(roomRef);
-
-    if (!roomSnap.exists()) return;
-
-    let room = roomSnap.data();
-    let market = room.market;
-
-    // 📊 MARKET MOVEMENT
-    STOCKS.forEach(stock => {
-      let price = market[stock].price;
-
-      let change = (Math.random() - 0.5) * 0.06;
-      let shock = Math.random() < 0.05 ? (Math.random() - 0.5) * 0.2 : 0;
-
-      let newPrice = price * (1 + change + shock);
-      market[stock].price = Math.max(1, Math.round(newPrice));
-    });
-
-    // 🤖 AI TRADING
-   Object.keys(room.aiTeams).forEach(ai => {
-  let bot = room.aiTeams[ai];
-
-  let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
-  let price = market[stock].price;
-
-  let r = Math.random();
-
-  if (r < 0.6 && bot.cash > price) {
-    bot.cash = bot.cash - price;
-    bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
-  } 
-  else if (r < 0.8 && bot.holdings[stock] > 0) {
-    bot.cash = bot.cash + price;
-    bot.holdings[stock] -= 1;
-  }
-});
-
-    await setDoc(roomRef, room);
-    updateUI(room);
-  }, 3000);
 }
 
- function updateUI(room) {
-  const playerKey = myRole === "friend" ? "friend" : "host";
-  const player = room.players[playerKey];
+function listenRoom(roomCode) {
+  const roomRef = doc(db, "rooms", roomCode);
 
-  document.getElementById("debug").innerHTML = `
-    CASH: ${player.cash}<br>
-    AAPL: ${player.holdings.AAPL || 0}<br>
-    TSLA: ${player.holdings.TSLA || 0}
-  `;
+  onSnapshot(roomRef, (snap) => {
+    const room = snap.data();
+    if (!room) return;
+
+    const player = room.players[myRole];
+
+    document.getElementById("debug").innerHTML = `
+      <b>PLAYER:</b> ${myRole}<br>
+      <b>CASH:</b> ${player.cash}<br><br>
+      <b>HOLDINGS:</b><br>
+      AAPL: ${player.holdings.AAPL || 0}<br>
+      TSLA: ${player.holdings.TSLA || 0}<br>
+      INFY: ${player.holdings.INFY || 0}<br>
+      BTC: ${player.holdings.BTC || 0}<br>
+    `;
+  });
 }
+
+window.createRoom = createRoom;
+window.joinRoom = joinRoom;
+window.buy = buy;
