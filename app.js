@@ -1,3 +1,4 @@
+let myRole = null;
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import {
   getFirestore,
@@ -62,11 +63,14 @@ window.joinRoom = async function () {
 
   const roomData = roomSnap.data();
 
+  // 👉 assign role properly
+  myRole = roomData.players.friend ? "spectator" : "friend";
+
   await setDoc(roomRef, {
     ...roomData,
     players: {
       ...roomData.players,
-      friend: {
+      friend: roomData.players.friend || {
         cash: 1000000,
         holdings: {}
       }
@@ -74,7 +78,7 @@ window.joinRoom = async function () {
   });
 
   document.getElementById("roomDisplay").textContent = roomCode;
-  alert("Joined room " + roomCode);
+  alert("Joined room " + roomCode + " as " + myRole);
 
   startGameLoop(roomCode);
 };
@@ -87,11 +91,13 @@ window.buy = async function(stock) {
   if (!roomSnap.exists()) return;
 
   let room = roomSnap.data();
-  let player = room.players.friend || room.players.host;
 
+  let playerKey = myRole === "friend" ? "friend" : "host";
+
+  let player = room.players[playerKey];
   let price = room.market[stock].price;
 
-  if (player.cash < price) {
+  if (!player || player.cash < price) {
     alert("Not enough cash");
     return;
   }
@@ -100,7 +106,8 @@ window.buy = async function(stock) {
   player.holdings[stock] = (player.holdings[stock] || 0) + 1;
 
   await setDoc(roomRef, room);
-  alert("Bought " + stock);
+
+  console.log(`Bought ${stock} | Cash: ${player.cash}`);
 };
 const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
 
@@ -123,26 +130,38 @@ async function startGameLoop(roomCode) {
 
       let newPrice = price * (1 + change + shock);
       market[stock].price = Math.max(1, Math.round(newPrice));
+      updateUI(room);
     });
 
     // 🤖 AI TRADING
     Object.keys(room.aiTeams).forEach(ai => {
-      let bot = room.aiTeams[ai];
+  let bot = room.aiTeams[ai];
 
-      let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
-      let price = market[stock].price;
+  let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
+  let price = market[stock].price;
 
-      let r = Math.random();
+  let r = Math.random();
 
-      if (r < 0.6 && bot.cash > price) {
-        bot.cash -= price;
-        bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
-      } else if (r < 0.8 && bot.holdings[stock] > 0) {
-        bot.cash += price;
-        bot.holdings[stock] -= 1;
-      }
-    });
+  if (r < 0.6 && bot.cash > price) {
+    bot.cash -= price;
+    bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
+  } 
+  else if (r < 0.8 && bot.holdings[stock] > 0) {
+    bot.cash += price;
+    bot.holdings[stock] -= 1;
+  }
+});
 
     await setDoc(roomRef, room);
   }, 3000);
+  function updateUI(room) {
+  const playerKey = myRole === "friend" ? "friend" : "host";
+  const player = room.players[playerKey];
+
+  document.getElementById("debug").innerHTML = `
+    CASH: ${player.cash}<br>
+    AAPL: ${player.holdings.AAPL || 0}<br>
+    TSLA: ${player.holdings.TSLA || 0}
+  `;
+}
 }
