@@ -1,1 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Overdrive Market</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
+<h1>📈 Overdrive Market</h1>
+
+<div class="panel">
+  <h2>Player</h2>
+  <input id="playerName" placeholder="Enter Name">
+  <button onclick="createRoom()">Create Room</button>
+  <br><br>
+  <input id="roomCode" placeholder="Room Code">
+  <button onclick="joinRoom()">Join Room</button>
+</div>
+
+<div class="panel">
+  <h2>Game</h2>
+  <p>Room: <span id="roomDisplay">None</span></p>
+  <p>Cash: ₹<span id="cash">1000000</span></p>
+</div>
+
+<div class="panel">
+  <h2>Stocks</h2>
+
+  <div class="stock">
+    Titan - ₹<span id="titanPrice">100</span>
+    <button onclick="buy('Titan')">Buy</button>
+  </div>
+
+  <div class="stock">
+    Nova - ₹<span id="novaPrice">100</span>
+    <button onclick="buy('Nova')">Buy</button>
+  </div>
+
+  <div class="stock">
+    SkyBridge - ₹<span id="skyPrice">100</span>
+    <button onclick="buy('SkyBridge')">Buy</button>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
