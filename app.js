@@ -93,14 +93,18 @@ export async function buy(stock) {
   const playerKey = myRole;
   const player = room.players[playerKey];
 
-  const price = room.market[stock];
+  const price = Number(room.market?.[stock]);
+  if (!price || isNaN(price)) {
+    alert("Invalid stock price");
+    return;
+  }
 
   if (player.cash < price) {
     alert("Not enough cash");
     return;
   }
 
-  player.cash -= price;
+  player.cash = Number(player.cash || 0) - price;
   player.holdings[stock] = (player.holdings[stock] || 0) + 1;
 
   await setDoc(roomRef, room);
