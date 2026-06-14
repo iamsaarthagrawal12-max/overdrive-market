@@ -1,4 +1,5 @@
 let myRole = null;
+let currentRoomCode = null;
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import {
   getFirestore,
@@ -48,6 +49,8 @@ window.createRoom = async function () {
   });
 
   document.getElementById("roomDisplay").textContent = roomCode;
+  currentRoomCode = roomCode;
+  myRole = "host";
   alert("Room Created: " + roomCode);
 };
 
@@ -78,26 +81,41 @@ window.joinRoom = async function () {
   });
 
   document.getElementById("roomDisplay").textContent = roomCode;
+  currentRoomCode = roomCode;
+  myRole = roomData.players.friend ? "friend" : "friend";
   alert("Joined room " + roomCode + " as " + myRole);
 
   startGameLoop(roomCode);
 };
 
 window.buy = async function(stock) {
-  const roomCode = document.getElementById("roomDisplay").textContent;
-  const roomRef = doc(db, "rooms", roomCode);
+  if (!currentRoomCode) {
+    alert("No room selected");
+    return;
+  }
+
+  const roomRef = doc(db, "rooms", currentRoomCode);
   const roomSnap = await getDoc(roomRef);
 
-  if (!roomSnap.exists()) return;
+  if (!roomSnap.exists()) {
+    alert("Room missing");
+    return;
+  }
 
   let room = roomSnap.data();
 
-  let playerKey = myRole;
+  // FIX: correct player selection
+  let playerKey = myRole === "host" ? "host" : "friend";
+
+  if (!room.players[playerKey]) {
+    alert("Player not found in room");
+    return;
+  }
 
   let player = room.players[playerKey];
   let price = room.market[stock].price;
 
-  if (!player || player.cash < price) {
+  if (player.cash < price) {
     alert("Not enough cash");
     return;
   }
@@ -107,7 +125,7 @@ window.buy = async function(stock) {
 
   await setDoc(roomRef, room);
 
-  console.log("Bought", stock, "cash:", player.cash);
+  console.log("BUY SUCCESS:", stock, playerKey, player.cash);
 };
 const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
 
