@@ -21,12 +21,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-/* ================= GLOBAL STATE ================= */
+/* ================= STATE ================= */
 
 let currentRoom = null;
 let myRole = null;
 
-/* ================= MARKET BASE ================= */
+/* ================= MARKET ================= */
 
 const BASE_MARKET = {
   AAPL: 150,
@@ -37,17 +37,20 @@ const BASE_MARKET = {
 
 /* ================= CREATE ROOM ================= */
 
-window.createRoom = async function () {
+window.createRoom = async function (mode = "coop") {
   const roomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
 
   await setDoc(doc(db, "rooms", roomCode), {
-    mode: "coop",
+    mode,
     market: BASE_MARKET,
+
     players: {
       host: { cash: 1000000, holdings: {} }
     },
+
     ai: {
-      ai1: { cash: 1000000, holdings: {} }
+      ai1: { cash: 1000000, holdings: {} },
+      ai2: { cash: 1000000, holdings: {} }
     }
   });
 
@@ -58,7 +61,9 @@ window.createRoom = async function () {
 
   startListener(roomCode);
 
-  alert("Room Created: " + roomCode);
+  startGameLoop(roomCode);
+
+  alert("Room Created: " + roomCode + " MODE: " + mode);
 };
 
 /* ================= JOIN ROOM ================= */
@@ -91,10 +96,12 @@ window.joinRoom = async function () {
 
   startListener(roomCode);
 
+  startGameLoop(roomCode);
+
   alert("Joined Room: " + roomCode);
 };
 
-/* ================= BUY SYSTEM ================= */
+/* ================= BUY ================= */
 
 window.buy = async function (stock) {
   if (!currentRoom) return;
@@ -102,11 +109,9 @@ window.buy = async function (stock) {
   const ref = doc(db, "rooms", currentRoom);
   const snap = await getDoc(ref);
 
-  if (!snap.exists()) return;
-
   const room = snap.data();
-
   const player = room.players[myRole];
+
   const price = room.market[stock];
 
   if (!player || player.cash < price) {
@@ -120,7 +125,7 @@ window.buy = async function (stock) {
   await setDoc(ref, room);
 };
 
-/* ================= LIVE LISTENER ================= */
+/* ================= LISTENER ================= */
 
 function startListener(roomCode) {
   const ref = doc(db, "rooms", roomCode);
@@ -131,10 +136,14 @@ function startListener(roomCode) {
 
     const player = room.players[myRole];
 
+    const netWorth = calcNetWorth(player, room.market);
+
     document.getElementById("debug").innerHTML = `
+      <b>MODE:</b> ${room.mode}<br>
       <b>ROLE:</b> ${myRole}<br>
       <b>CASH:</b> ${player.cash}<br>
-      <br>
+      <b>NET WORTH:</b> ${netWorth}<br><br>
+
       AAPL: ${player.holdings.AAPL || 0}<br>
       TSLA: ${player.holdings.TSLA || 0}<br>
       INFY: ${player.holdings.INFY || 0}<br>
@@ -143,50 +152,74 @@ function startListener(roomCode) {
   });
 }
 
-/* ================= EXPORT TO HTML ================= */
+/* ================= NET WORTH ================= */
+
+function calcNetWorth(player, market) {
+  let total = player.cash;
+
+  for (let stock in player.holdings) {
+    total += (market[stock] || 0) * player.holdings[stock];
+  }
+
+  return Math.round(total);
+}
+
+/* ================= EXPORT ================= */
 
 window.createRoom = createRoom;
 window.joinRoom = joinRoom;
 window.buy = buy;
-/* ================= MARKET + AI LOOP ================= */
+/* ================= MARKET ENGINE ================= */
 
 const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
 
-setInterval(async () => {
-  if (!currentRoom) return;
+function startGameLoop(roomCode) {
+  setInterval(async () => {
+    if (!roomCode) return;
 
-  const ref = doc(db, "rooms", currentRoom);
-  const snap = await getDoc(ref);
+    const ref = doc(db, "rooms", roomCode);
+    const snap = await getDoc(ref);
 
-  if (!snap.exists()) return;
+    if (!snap.exists()) return;
 
-  const room = snap.data();
+    const room = snap.data();
 
-  /* ---- PRICE MOVEMENT ---- */
-  Object.keys(room.market).forEach(stock => {
-    let price = room.market[stock];
+    /* ---- PRICE MOVEMENT ---- */
+    for (let stock in room.market) {
+      let price = room.market[stock];
 
-    let change = (Math.random() - 0.5) * 0.05;
-    price = price * (1 + change);
+      let change = (Math.random() - 0.5) * 0.06;
+      price = price * (1 + change);
 
-    room.market[stock] = Math.max(1, Math.round(price));
-  });
-
-  /* ---- AI TRADING ---- */
-  Object.keys(room.ai).forEach(ai => {
-    let bot = room.ai[ai];
-
-    let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
-    let price = room.market[stock];
-
-    let r = Math.random();
-
-    if (r < 0.6 && bot.cash > price) {
-      bot.cash -= price;
-      bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
+      room.market[stock] = Math.max(1, Math.round(price));
     }
-  });
 
-  await setDoc(ref, room);
+    /* ---- AI TRADING ---- */
+    for (let ai in room.ai) {
+      let bot = room.ai[ai];
 
-}, 3000);
+      let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
+      let price = room.market[stock];
+
+      if (Math.random() < 0.5 && bot.cash > price) {
+        bot.cash -= price;
+        bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
+      }
+    }
+
+    /* ---- WIN CONDITION (VERSUS MODE) ---- */
+    if (room.mode === "versus" && room.players.friend) {
+      const hostWorth = calcNetWorth(room.players.host, room.market);
+      const friendWorth = calcNetWorth(room.players.friend, room.market);
+
+      if (hostWorth > 2000000 || friendWorth > 2000000) {
+        console.log("GAME OVER");
+        console.log("HOST:", hostWorth);
+        console.log("FRIEND:", friendWorth);
+      }
+    }
+
+    await setDoc(ref, room);
+
+  }, 3000);
+}
