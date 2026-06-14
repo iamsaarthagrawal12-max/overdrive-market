@@ -1,33 +1,52 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
   <title>Overdrive Market</title>
-  <style>
-    body { font-family: Arial; padding: 20px; }
-    button { margin: 5px; padding: 10px; }
-    #debug { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
 
-  <h1>📈 Overdrive Market</h1>
+  <div class="app">
 
-  <input id="roomCode" placeholder="Enter Room Code">
-  <button onclick="createRoom()">Create Room</button>
-  <button onclick="joinRoom()">Join Room</button>
+    <div class="topbar">
+      <h1>📈 Overdrive Market</h1>
+      <div class="roomBox">
+        <input id="roomCode" placeholder="ROOM CODE" />
+        <button onclick="createRoom()">Create Room</button>
+        <button onclick="joinRoom(document.getElementById('roomCode').value)">Join Room</button>
+      </div>
 
-  <h2>Room: <span id="roomDisplay">NONE</span></h2>
+      <div class="roomDisplay">
+        Room: <span id="roomDisplay">NONE</span>
+      </div>
+    </div>
 
-  <hr>
+    <div class="grid">
 
-  <h3>Stocks</h3>
-  <button onclick="buy('AAPL')">Buy AAPL</button>
-  <button onclick="buy('TSLA')">Buy TSLA</button>
-  <button onclick="buy('INFY')">Buy INFY</button>
-  <button onclick="buy('BTC')">Buy BTC</button>
+      <!-- MARKET PANEL -->
+      <div class="panel market">
+        <h2>📊 Market</h2>
 
-  <div id="debug">No data yet</div>
+        <button onclick="buy('AAPL')">Buy AAPL</button>
+        <button onclick="buy('TSLA')">Buy TSLA</button>
+        <button onclick="buy('INFY')">Buy INFY</button>
+        <button onclick="buy('BTC')">Buy BTC</button>
+
+        <div class="hint">
+          Prices update live every 2s
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div class="panel dashboard">
+        <div id="debug">Loading...</div>
+      </div>
+
+    </div>
+
+  </div>
 
   <script type="module" src="app.js"></script>
 
