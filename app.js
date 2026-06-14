@@ -64,7 +64,7 @@ window.joinRoom = async function () {
   const roomData = roomSnap.data();
 
   // 👉 assign role properly
-  myRole = "friend";
+  myRole = roomData.players.friend ? "friend" : "host";
 
   await setDoc(roomRef, {
     ...roomData,
@@ -92,7 +92,7 @@ window.buy = async function(stock) {
 
   let room = roomSnap.data();
 
-  let playerKey = myRole === "friend" ? "friend" : "host";
+  let playerKey = myRole;
 
   let player = room.players[playerKey];
   let price = room.market[stock].price;
@@ -107,7 +107,7 @@ window.buy = async function(stock) {
 
   await setDoc(roomRef, room);
 
-  console.log(`Bought ${stock} | Cash: ${player.cash}`);
+  console.log("Bought", stock, "cash:", player.cash);
 };
 const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
 
@@ -133,7 +133,7 @@ async function startGameLoop(roomCode) {
     });
 
     // 🤖 AI TRADING
-    Object.keys(room.aiTeams).forEach(ai => {
+   Object.keys(room.aiTeams).forEach(ai => {
   let bot = room.aiTeams[ai];
 
   let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
@@ -142,11 +142,11 @@ async function startGameLoop(roomCode) {
   let r = Math.random();
 
   if (r < 0.6 && bot.cash > price) {
-    bot.cash -= price;
+    bot.cash = bot.cash - price;
     bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
   } 
   else if (r < 0.8 && bot.holdings[stock] > 0) {
-    bot.cash += price;
+    bot.cash = bot.cash + price;
     bot.holdings[stock] -= 1;
   }
 });
@@ -155,6 +155,7 @@ async function startGameLoop(roomCode) {
     updateUI(room);
   }, 3000);
 }
+
  function updateUI(room) {
   const playerKey = myRole === "friend" ? "friend" : "host";
   const player = room.players[playerKey];
