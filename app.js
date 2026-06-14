@@ -9,8 +9,8 @@ import {
 const firebaseConfig = {
   apiKey: "AIzaSyAIyGEBhM4UWhyS4bm8yLoSFKdVVNzcPQY",
   authDomain: "overdrive-market.firebaseapp.com",
-  projectId: "overdrive-market",
   storageBucket: "overdrive-market.firebasestorage.app",
+  projectId: "overdrive-market",
   messagingSenderId: "213364020052",
   appId: "1:213364020052:web:33d3e4fa353ed08112aec1"
 };
@@ -23,19 +23,35 @@ window.createRoom = async function () {
 
   await setDoc(doc(db, "rooms", roomCode), {
     createdAt: Date.now(),
-    cash: 1000000,
-    players: []
+    mode: "coop",
+    started: false,
+
+    market: {
+      AAPL: { price: 150 },
+      TSLA: { price: 700 },
+      INFY: { price: 1400 },
+      BTC: { price: 50000 }
+    },
+
+    players: {
+      host: {
+        cash: 1000000,
+        holdings: {}
+      }
+    },
+
+    aiTeams: {
+      ai1: { cash: 1000000, holdings: {} },
+      ai2: { cash: 1000000, holdings: {} }
+    }
   });
 
   document.getElementById("roomDisplay").textContent = roomCode;
-
   alert("Room Created: " + roomCode);
 };
 
 window.joinRoom = async function () {
-  const roomCode =
-    document.getElementById("roomCode").value.toUpperCase();
-
+  const roomCode = document.getElementById("roomCode").value.toUpperCase();
   const roomRef = doc(db, "rooms", roomCode);
   const roomSnap = await getDoc(roomRef);
 
@@ -44,11 +60,89 @@ window.joinRoom = async function () {
     return;
   }
 
+  const roomData = roomSnap.data();
+
+  await setDoc(roomRef, {
+    ...roomData,
+    players: {
+      ...roomData.players,
+      friend: {
+        cash: 1000000,
+        holdings: {}
+      }
+    }
+  });
+
   document.getElementById("roomDisplay").textContent = roomCode;
-
   alert("Joined room " + roomCode);
+
+  startGameLoop(roomCode);
 };
 
-window.buy = function(stock){
-  alert("Buying " + stock + " (trading engine coming next)");
+window.buy = async function(stock) {
+  const roomCode = document.getElementById("roomDisplay").textContent;
+  const roomRef = doc(db, "rooms", roomCode);
+  const roomSnap = await getDoc(roomRef);
+
+  if (!roomSnap.exists()) return;
+
+  let room = roomSnap.data();
+  let player = room.players.friend || room.players.host;
+
+  let price = room.market[stock].price;
+
+  if (player.cash < price) {
+    alert("Not enough cash");
+    return;
+  }
+
+  player.cash -= price;
+  player.holdings[stock] = (player.holdings[stock] || 0) + 1;
+
+  await setDoc(roomRef, room);
+  alert("Bought " + stock);
 };
+const STOCKS = ["AAPL", "TSLA", "INFY", "BTC"];
+
+async function startGameLoop(roomCode) {
+  setInterval(async () => {
+    const roomRef = doc(db, "rooms", roomCode);
+    const roomSnap = await getDoc(roomRef);
+
+    if (!roomSnap.exists()) return;
+
+    let room = roomSnap.data();
+    let market = room.market;
+
+    // 📊 MARKET MOVEMENT
+    STOCKS.forEach(stock => {
+      let price = market[stock].price;
+
+      let change = (Math.random() - 0.5) * 0.06;
+      let shock = Math.random() < 0.05 ? (Math.random() - 0.5) * 0.2 : 0;
+
+      let newPrice = price * (1 + change + shock);
+      market[stock].price = Math.max(1, Math.round(newPrice));
+    });
+
+    // 🤖 AI TRADING
+    Object.keys(room.aiTeams).forEach(ai => {
+      let bot = room.aiTeams[ai];
+
+      let stock = STOCKS[Math.floor(Math.random() * STOCKS.length)];
+      let price = market[stock].price;
+
+      let r = Math.random();
+
+      if (r < 0.6 && bot.cash > price) {
+        bot.cash -= price;
+        bot.holdings[stock] = (bot.holdings[stock] || 0) + 1;
+      } else if (r < 0.8 && bot.holdings[stock] > 0) {
+        bot.cash += price;
+        bot.holdings[stock] -= 1;
+      }
+    });
+
+    await setDoc(roomRef, room);
+  }, 3000);
+}
