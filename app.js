@@ -64,7 +64,7 @@ window.joinRoom = async function () {
   const roomData = roomSnap.data();
 
   // 👉 assign role properly
-  myRole = roomData.players.friend ? "spectator" : "friend";
+  myRole = "friend";
 
   await setDoc(roomRef, {
     ...roomData,
@@ -130,7 +130,6 @@ async function startGameLoop(roomCode) {
 
       let newPrice = price * (1 + change + shock);
       market[stock].price = Math.max(1, Math.round(newPrice));
-      updateUI(room);
     });
 
     // 🤖 AI TRADING
@@ -153,8 +152,10 @@ async function startGameLoop(roomCode) {
 });
 
     await setDoc(roomRef, room);
+    updateUI(room);
   }, 3000);
-  function updateUI(room) {
+}
+ function updateUI(room) {
   const playerKey = myRole === "friend" ? "friend" : "host";
   const player = room.players[playerKey];
 
@@ -163,5 +164,4 @@ async function startGameLoop(roomCode) {
     AAPL: ${player.holdings.AAPL || 0}<br>
     TSLA: ${player.holdings.TSLA || 0}
   `;
-}
 }
