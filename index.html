@@ -2,48 +2,34 @@
 <html>
 <head>
   <title>Overdrive Market</title>
-  <link rel="stylesheet" href="style.css">
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    button { margin: 5px; padding: 10px; }
+    #debug { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+  </style>
 </head>
+
 <body>
 
-<h1>📈 Overdrive Market</h1>
+  <h1>📈 Overdrive Market</h1>
 
-<div id="debug"></div>
-<div class="panel">
-  <h2>Player</h2>
-  <input id="playerName" placeholder="Enter Name">
+  <input id="roomCode" placeholder="Enter Room Code">
   <button onclick="createRoom()">Create Room</button>
-  <br><br>
-  <input id="roomCode" placeholder="Room Code">
   <button onclick="joinRoom()">Join Room</button>
-</div>
 
-<div class="panel">
-  <h2>Game</h2>
-  <p>Room: <span id="roomDisplay">None</span></p>
-  <p>Cash: ₹<span id="cash">1000000</span></p>
-</div>
+  <h2>Room: <span id="roomDisplay">NONE</span></h2>
 
-<div class="panel">
-  <h2>Stocks</h2>
+  <hr>
 
-  <div class="stock">
-    Titan - ₹<span id="titanPrice">100</span>
-    <button onclick="buy('Titan')">Buy Titan</button>
-  </div>
+  <h3>Stocks</h3>
+  <button onclick="buy('AAPL')">Buy AAPL</button>
+  <button onclick="buy('TSLA')">Buy TSLA</button>
+  <button onclick="buy('INFY')">Buy INFY</button>
+  <button onclick="buy('BTC')">Buy BTC</button>
 
-  <div class="stock">
-    Nova - ₹<span id="novaPrice">100</span>
-    <button onclick="buy('Nova')">Buy Nova</button>
-  </div>
+  <div id="debug">No data yet</div>
 
-  <div class="stock">
-    SkyBridge - ₹<span id="skyPrice">100</span>
-    <button onclick="buy('SkyBridge')">Buy SkyBridge</button>
-  </div>
-</div>
-
-<script type="module" src="app.js"></script>
+  <script type="module" src="app.js"></script>
 
 </body>
 </html>
